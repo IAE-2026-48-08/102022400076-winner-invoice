@@ -1,0 +1,195 @@
+{
+  "info": {
+    "name": "Winner Invoice API",
+    "description": "API untuk sistem Winner & Invoice.\\n\\n## Authentication\\n- GET endpoints: no auth required\\n- POST /api/v1/winners: requires JWT Bearer token (auto-generated via Pre-request Script)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "exec": [
+          "const header = {",
+          "  'alg': 'HS256',",
+          "  'typ': 'JWT'",
+          "};",
+          "",
+          "const now = Math.floor(Date.now() / 1000);",
+          "const payload = {",
+          "  'sub': '1234567890',",
+          "  'name': 'John Doe',",
+          "  'email': 'john@example.com',",
+          "  'role': 'user',",
+          "  'iat': now,",
+          "  'exp': now + 86400  // 24 hours",
+          "};",
+          "",
+          "// Base64Url encode",
+          "function base64UrlEncode(str) {",
+          "  return CryptoJS.enc.Base64.stringify(str)",
+          "    .replace(/=/g, '')",
+          "    .replace(/\\+/g, '-')",
+          "    .replace(/\\//g, '_');",
+          "}",
+          "",
+          "const headerB64 = base64UrlEncode(CryptoJS.enc.Utf8.parse(JSON.stringify(header)));",
+          "const payloadB64 = base64UrlEncode(CryptoJS.enc.Utf8.parse(JSON.stringify(payload)));",
+          "const secret = 'dosen_secret_key';",
+          "",
+          "const signature = CryptoJS.HmacSHA256(headerB64 + '.' + payloadB64, secret);",
+          "const signatureB64 = base64UrlEncode(signature);",
+          "",
+          "pm.collectionVariables.set('token', headerB64 + '.' + payloadB64 + '.' + signatureB64);"
+        ],
+        "type": "text/javascript"
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Winners",
+      "item": [
+        {
+          "name": "List All Winners",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/winners",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "winners"]
+            }
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"List of winners and invoices retrieved successfully\",\n  \"data\": []\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Winner by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/winners/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "winners", "1"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "Winner ID"
+                }
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Winner and invoice details retrieved successfully\",\n  \"data\": {}\n}"
+            },
+            {
+              "name": "Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": false,\n  \"message\": \"Winner with ID 1 not found\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Create Winner (Checkout)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"auction_item_id\": 1,\n  \"user_id\": 1,\n  \"winning_bid\": 1500000\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/winners",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "winners"]
+            }
+          },
+          "response": [
+            {
+              "name": "Created",
+              "status": "Created",
+              "code": 201,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Checkout processed successfully\",\n  \"data\": {\n    \"id\": 1,\n    \"auction_item_id\": 1,\n    \"user_id\": 1,\n    \"winning_bid\": 1500000,\n    \"won_at\": \"2026-06-08T02:50:00.000000Z\",\n    \"user\": {},\n    \"auction_item\": {},\n    \"invoice\": {}\n  }\n}"
+            },
+            {
+              "name": "Validation Error",
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": false,\n  \"message\": \"Validation error\",\n  \"errors\": {}\n}"
+            },
+            {
+              "name": "Already Checked Out",
+              "status": "Bad Request",
+              "code": 400,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": false,\n  \"message\": \"This auction item has already been checked out by a winner\"\n}"
+            },
+            {
+              "name": "Unauthorized",
+              "status": "Unauthorized",
+              "code": 401,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": false,\n  \"message\": \"Invalid or expired token\"\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
