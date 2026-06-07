@@ -1,10 +1,3 @@
-# Dokumentasi Analisis Tugas 3 — Integrasi Aplikasi Enterprise
-
-## Modul: Pemenang & Invoice (Winners & Invoice Microservice)
-
-**NRP**: 102022400076
-
----
 
 ## 1. Klasifikasi Transaksi Kritis (State-Changing)
 
@@ -45,61 +38,8 @@ Checkout Transaction
 
 ---
 
-## 2. Sequence Diagram Internal
 
-Diagram berikut menggambarkan aliran interaksi internal dengan **layanan terpusat yang disediakan dosen** (SSO JWT, SOAP Audit, RabbitMQ) saat memproses checkout:
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Client
-    participant API_Gateway as API Gateway (Nginx/Kong)
-    participant Service as Winners & Invoice Service (Laravel)
-    participant Local_DB as Database Lokal (SQLite)
-    participant SSO_Dosen as SSO Cloud (Dosen)
-    participant SOAP_Dosen as SOAP Audit (Dosen)
-    participant RabbitMQ as RabbitMQ (Dosen)
-
-    Client->>API_Gateway: POST /api/v1/winners (Bearer JWT)
-    API_Gateway->>Service: Forward request & JWT
-
-    Note over Service: Middleware: VerifyJwtToken
-    Service->>SSO_Dosen: Verifikasi signature JWT (HMAC-SHA256)
-    SSO_Dosen-->>Service: Payload: {email, name, role}
-    alt JWT Valid
-        Service->>Local_DB: Sync User & Role (Find/Create)
-        Local_DB-->>Service: User mapped
-    else JWT Invalid/Expired
-        Service-->>Client: HTTP 401 Unauthorized
-    end
-
-    Note over Service: Controller: WinnerController@store
-    Service->>Local_DB: Cek status auction_item
-    alt Sudah dicheckout
-        Service-->>Client: HTTP 400 Bad Request
-    else Tersedia
-        Service->>SOAP_Dosen: POST XML SOAP Envelope (AuditRequest)
-        Note over SOAP_Dosen: Layanan Terpusat Dosen
-        alt Sukses
-            SOAP_Dosen-->>Service: XML Response (ReceiptNumber)
-        else Gagal (Timeout/Offline)
-            Note over Service: Fallback: REC-SOAP-FALLBACK-...
-        end
-
-        Service->>Local_DB: DB Transaction: INSERT Winner + Invoice
-        Local_DB-->>Service: Data saved
-
-        Service->>RabbitMQ: Publish event winner.checkout
-        Note over RabbitMQ: Layanan Terpusat Dosen
-        Note over Service: Fail-safe: log error jika offline
-
-        Service-->>Client: HTTP 201 Created (JSON)
-    end
-```
-
----
-
-## 3. Layanan Terpusat (Disediakan Dosen)
+## 2. Layanan Terpusat (Disediakan Dosen)
 
 | Layanan | Jenis | Endpoint/Konfigurasi | Fungsi |
 |---------|-------|---------------------|--------|
@@ -109,7 +49,7 @@ sequenceDiagram
 
 ---
 
-## 4. Dokumentasi Lengkap
+## 3. Dokumentasi Lengkap
 
 Dokumen analisis detail tersedia di:
 - **`analisis_tugas_3.md`** — Analisis lengkap, sequence diagram, dan detail mekanisme integrasi
@@ -117,7 +57,7 @@ Dokumen analisis detail tersedia di:
 
 ---
 
-## 5. Setup & Menjalankan
+## 4. Setup & Menjalankan
 
 ```bash
 # Install dependencies
