@@ -111,9 +111,9 @@ sequenceDiagram
 
 ## 4. Dokumentasi Lengkap
 
-Dokumen analisis detail tersedia di:
-- **`analisis_tugas_3.md`** — Analisis lengkap, sequence diagram, dan detail mekanisme integrasi
+Dokumen yang tersedia di project ini:
 - **`WinnerInvoice-API.postman_collection.json`** — Koleksi Postman untuk uji coba API
+- **`README.md`** — Ringkasan alur, setup, dan integrasi sistem
 
 ---
 
