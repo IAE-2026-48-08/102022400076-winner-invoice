@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use OpenApi\Annotations as OA;
 use App\Models\Winner;
 use App\Models\Invoice;
 use App\Models\AuctionItem;
@@ -13,6 +14,34 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
+/**
+ * @OA\Info(
+ *     title="Winner Invoice API",
+ *     version="1.0.0",
+ *     description="API untuk layanan Winner & Invoice — IAE-T2 Compliant"
+ * )
+ *
+ * @OA\Server(
+ *     url="http://127.0.0.1:8000",
+ *     description="Local Dev Server"
+ * )
+ *
+ * @OA\SecurityScheme(
+ *     securityScheme="bearerAuth",
+ *     type="http",
+ *     scheme="bearer",
+ *     bearerFormat="JWT",
+ *     description="Masukkan token SSO JWT (format: Bearer <token>)"
+ * )
+ *
+ * @OA\SecurityScheme(
+ *     securityScheme="iaeKeyAuth",
+ *     type="apiKey",
+ *     in="header",
+ *     name="X-IAE-KEY",
+ *     description="Masukkan API Key IAE (header X-IAE-KEY)"
+ * )
+ */
 class WinnerController extends Controller
 {
     protected SoapAuditService $soapAuditService;
@@ -26,44 +55,138 @@ class WinnerController extends Controller
 
     /**
      * GET /api/v1/winners
-     * View all winners with their invoices, items, and users.
+     * List all winners with related invoice, item, and user data.
+     *
+     * @OA\Get(
+     *     path="/api/v1/winners",
+     *     tags={"Winners"},
+     *     summary="List semua pemenang",
+     *     description="Mengembalikan daftar pemenang beserta data invoice, item, dan user.",
+     *     @OA\Response(
+     *         response=200,
+     *         description="Berhasil",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="status", type="string", example="success"),
+     *             @OA\Property(property="message", type="string"),
+     *             @OA\Property(property="data", type="array", @OA\Items(type="object")),
+     *             @OA\Property(property="meta", type="object",
+     *                 @OA\Property(property="service_name", type="string", example="Winner-Service"),
+     *                 @OA\Property(property="api_version", type="string", example="v1")
+     *             )
+     *         )
+     *     )
+     * )
      */
     public function index()
     {
         $winners = Winner::with(['user', 'auctionItem', 'invoice'])->get();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'List of winners and invoices retrieved successfully',
-            'data' => $winners
-        ], 200);
+        return response()->json($this->buildResponse('success', 'List of winners and invoices retrieved successfully', $winners), 200);
     }
 
     /**
      * GET /api/v1/winners/{id}
-     * View specific winner details with invoice, item, and user.
+     * Get detail of a specific winner.
+     *
+     * @OA\Get(
+     *     path="/api/v1/winners/{id}",
+     *     tags={"Winners"},
+     *     summary="Detail pemenang berdasarkan ID",
+     *     @OA\Parameter(name="id", in="path", required=true, description="Winner ID", @OA\Schema(type="integer")),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Berhasil",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="status", type="string", example="success"),
+     *             @OA\Property(property="message", type="string"),
+     *             @OA\Property(property="data", type="object"),
+     *             @OA\Property(property="meta", type="object",
+     *                 @OA\Property(property="service_name", type="string", example="Winner-Service"),
+     *                 @OA\Property(property="api_version", type="string", example="v1")
+     *             )
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=404,
+     *         description="Tidak ditemukan",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="status", type="string", example="error"),
+     *             @OA\Property(property="message", type="string"),
+     *             @OA\Property(property="errors", nullable=true, example=null)
+     *         )
+     *     )
+     * )
      */
     public function show($id)
     {
         $winner = Winner::with(['user', 'auctionItem', 'invoice'])->find($id);
 
         if (!$winner) {
-            return response()->json([
-                'success' => false,
-                'message' => "Winner with ID {$id} not found"
-            ], 404);
+            return response()->json($this->buildResponse('error', "Winner with ID {$id} not found", null, 404), 404);
         }
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Winner and invoice details retrieved successfully',
-            'data' => $winner
-        ], 200);
+        return response()->json($this->buildResponse('success', 'Winner and invoice details retrieved successfully', $winner), 200);
     }
 
     /**
      * POST /api/v1/winners
-     * Checkout won auction item (creates Winner and Invoice, triggers SOAP Audit and RabbitMQ).
+     * Checkout a won auction item.
+     *
+     * @OA\Post(
+     *     path="/api/v1/winners",
+     *     tags={"Winners"},
+     *     summary="Proses checkout pemenang (dilindungi JWT SSO)",
+     *     security={{"bearerAuth":{}}, {"iaeKeyAuth":{}}},
+     *     @OA\RequestBody(
+     *         required=true,
+     *         @OA\JsonContent(
+     *             required={"auction_item_id","user_id","winning_bid"},
+     *             @OA\Property(property="auction_item_id", type="integer", example=1),
+     *             @OA\Property(property="user_id", type="integer", example=1),
+     *             @OA\Property(property="winning_bid", type="number", format="float", example=5000000)
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=201,
+     *         description="Checkout berhasil",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="status", type="string", example="success"),
+     *             @OA\Property(property="message", type="string"),
+     *             @OA\Property(property="data", type="object"),
+     *             @OA\Property(property="meta", type="object",
+     *                 @OA\Property(property="service_name", type="string", example="Winner-Service"),
+     *                 @OA\Property(property="api_version", type="string", example="v1")
+     *             )
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=401,
+     *         description="Unauthorized — token JWT atau X-IAE-KEY tidak valid",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="status", type="string", example="error"),
+     *             @OA\Property(property="message", type="string"),
+     *             @OA\Property(property="errors", nullable=true, example=null)
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=422,
+     *         description="Validasi gagal",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="status", type="string", example="error"),
+     *             @OA\Property(property="message", type="string"),
+     *             @OA\Property(property="errors", type="object")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=400,
+     *         description="Item sudah di-checkout",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="status", type="string", example="error"),
+     *             @OA\Property(property="message", type="string"),
+     *             @OA\Property(property="errors", nullable=true, example=null)
+     *         )
+     *     )
+     * )
      */
     public function store(Request $request)
     {
@@ -74,20 +197,13 @@ class WinnerController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation error',
-                'errors' => $validator->errors()
-            ], 422);
+            return response()->json($this->buildResponse('error', 'Validation error', ['errors' => $validator->errors()]), 422);
         }
 
         // Check if the item is already checked out (has a winner)
         $existingWinner = Winner::where('auction_item_id', $request->auction_item_id)->first();
         if ($existingWinner) {
-            return response()->json([
-                'success' => false,
-                'message' => 'This auction item has already been checked out by a winner'
-            ], 400);
+            return response()->json($this->buildResponse('error', 'This auction item has already been checked out by a winner', null), 400);
         }
 
         $user = User::find($request->user_id);
@@ -160,11 +276,7 @@ class WinnerController extends Controller
                 ]
             ]);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Checkout processed successfully',
-                'data' => $winner
-            ], 201);
+            return response()->json($this->buildResponse('success', 'Checkout processed successfully', $winner), 201);
 
         } catch (\Exception $e) {
             Log::error("Checkout transaction failed", [
@@ -172,10 +284,28 @@ class WinnerController extends Controller
                 'trace' => $e->getTraceAsString()
             ]);
 
-            return response()->json([
-                'success' => false,
-                'message' => 'Checkout failed due to system error: ' . $e->getMessage()
-            ], 500);
+            return response()->json($this->buildResponse('error', 'Checkout failed due to system error: ' . $e->getMessage(), null), 500);
         }
+    }
+
+    private function buildResponse(string $status, string $message, mixed $data = null): array
+    {
+        if ($status === 'success') {
+            return [
+                'status' => 'success',
+                'message' => $message,
+                'data' => $data ?? [],
+                'meta' => [
+                    'service_name' => 'Winner-Service',
+                    'api_version' => 'v1',
+                ],
+            ];
+        }
+
+        return [
+            'status' => 'error',
+            'message' => $message,
+            'errors' => $data['errors'] ?? $data ?? null,
+        ];
     }
 }

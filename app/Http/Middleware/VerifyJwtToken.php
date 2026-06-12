@@ -20,8 +20,9 @@ class VerifyJwtToken
 
         if (!$authHeader || !str_starts_with($authHeader, 'Bearer ')) {
             return response()->json([
-                'success' => false,
-                'message' => 'Authorization token is required'
+                'status' => 'error',
+                'message' => 'Authorization token is required',
+                'errors' => null
             ], 401);
         }
 
@@ -30,8 +31,9 @@ class VerifyJwtToken
 
         if (!$payload) {
             return response()->json([
-                'success' => false,
-                'message' => 'Invalid or expired token'
+                'status' => 'error',
+                'message' => 'Invalid or expired token',
+                'errors' => null
             ], 401);
         }
 
@@ -42,8 +44,9 @@ class VerifyJwtToken
 
         if (!$email) {
             return response()->json([
-                'success' => false,
-                'message' => 'Token payload does not contain email or sub claim'
+                'status' => 'error',
+                'message' => 'Token payload does not contain email or sub claim',
+                'errors' => null
             ], 401);
         }
 

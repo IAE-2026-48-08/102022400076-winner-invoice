@@ -1,0 +1,58 @@
+"A datetime string with format `Y-m-d H:i:s`, e.g. `2018-05-23 13:43:32`."
+scalar DateTime @scalar(class: "Nuwave\\Lighthouse\\Schema\\Types\\Scalars\\DateTime")
+
+type Query {
+    user(
+        id: ID @eq @rules(apply: ["prohibits:email", "required_without:email"])
+        email: String @eq @rules(apply: ["prohibits:id", "required_without:id", "email"])
+    ): User @find
+
+    users(
+        name: String @where(operator: "like")
+    ): [User!]! @paginate(defaultCount: 10)
+
+    winners: [Winner!]! @all
+    winner(id: ID! @eq): Winner @find
+}
+
+type User {
+    id: ID!
+    name: String!
+    email: String!
+    role: String!
+    created_at: DateTime!
+    updated_at: DateTime!
+}
+
+type AuctionItem {
+    id: ID!
+    name: String!
+    final_price: Float!
+    status: String!
+    created_at: DateTime!
+    updated_at: DateTime!
+}
+
+type Winner {
+    id: ID!
+    auction_item_id: ID!
+    user_id: ID!
+    winning_bid: Float!
+    won_at: DateTime!
+    created_at: DateTime!
+    updated_at: DateTime!
+    user: User! @belongsTo
+    auctionItem: AuctionItem! @belongsTo
+    invoice: Invoice @hasOne
+}
+
+type Invoice {
+    id: ID!
+    winner_id: ID!
+    invoice_number: String!
+    amount: Float!
+    status: String!
+    receipt_number: String
+    created_at: DateTime!
+    updated_at: DateTime!
+}

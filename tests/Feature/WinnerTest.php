@@ -65,7 +65,7 @@ class WinnerTest extends TestCase
 
         $response->assertStatus(200)
             ->assertJsonStructure([
-                'success',
+                'status',
                 'message',
                 'data' => [
                     '*' => [
@@ -119,7 +119,7 @@ class WinnerTest extends TestCase
     {
         $response = $this->getJson('/api/v1/winners/999');
         $response->assertStatus(404)
-            ->assertJsonPath('success', false);
+            ->assertJsonPath('status', 'error');
     }
 
     /**
@@ -134,7 +134,7 @@ class WinnerTest extends TestCase
         ]);
 
         $response->assertStatus(401)
-            ->assertJsonPath('success', false)
+            ->assertJsonPath('status', 'error')
             ->assertJsonPath('message', 'Authorization token is required');
     }
 
@@ -174,7 +174,7 @@ class WinnerTest extends TestCase
         ]);
 
         $response->assertStatus(201)
-            ->assertJsonPath('success', true)
+            ->assertJsonPath('status', 'success')
             ->assertJsonPath('data.invoice.amount', 5000000)
             ->assertJsonPath('data.invoice.receipt_number', 'REC-TEST-SOAP-12345');
 
