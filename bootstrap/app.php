@@ -15,6 +15,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'sso.jwt' => \App\Http\Middleware\VerifyJwtToken::class,
             'iae.key' => \App\Http\Middleware\VerifyIaeKey::class,
+            'auth.sso' => \App\Http\Middleware\AuthSSO::class,
+            'guest.sso' => \App\Http\Middleware\RedirectIfSsoAuthenticated::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

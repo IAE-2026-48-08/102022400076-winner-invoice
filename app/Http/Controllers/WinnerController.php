@@ -227,7 +227,8 @@ class WinnerController extends Controller
                     $winner->id,
                     $user->email,
                     $item->name,
-                    (float) $request->winning_bid
+                    (float) $request->winning_bid,
+                    $request->bearerToken() ?? $request->session()->get('sso.token'),
                 );
 
                 // 4. Create the Invoice record

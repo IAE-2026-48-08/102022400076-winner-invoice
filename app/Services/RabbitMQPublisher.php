@@ -2,86 +2,96 @@
 
 namespace App\Services;
 
-use PhpAmqpLib\Connection\AMQPStreamConnection;
-use PhpAmqpLib\Message\AMQPMessage;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class RabbitMQPublisher
 {
-    protected string $host;
-    protected int $port;
-    protected string $user;
-    protected string $password;
-    protected string $queue;
-
-    public function __construct()
+    public function publishEvent(string $routingKey, array $data): bool
     {
-        $this->host = env('RABBITMQ_HOST', 'localhost');
-        $this->port = (int) env('RABBITMQ_PORT', 5672);
-        $this->user = env('RABBITMQ_USER', 'guest');
-        $this->password = env('RABBITMQ_PASSWORD', 'guest');
-        $this->queue = env('RABBITMQ_QUEUE', 'winner_invoice_queue');
-    }
-
-    /**
-     * Publish JSON event message to RabbitMQ.
-     *
-     * @param string $eventType
-     * @param array $data
-     * @return void
-     */
-    public function publishEvent(string $eventType, array $data): void
-    {
-        $payload = [
-            'event' => $eventType,
-            'timestamp' => now()->toIso8601String(),
+        $message = [
+            'event_name' => $this->eventName($routingKey),
+            'service_name' => 'Winner-Invoice-Service',
+            'api_version' => 'v1',
+            'occurred_at' => now()->toIso8601String(),
             'data' => $data,
         ];
 
-        $jsonPayload = json_encode($payload);
-
-        Log::info("RabbitMQ: Publishing event {$eventType}", [
-            'payload' => $jsonPayload,
-            'host' => $this->host,
-            'port' => $this->port,
-            'queue' => $this->queue
-        ]);
-
         try {
-            // Establish Connection
-            $connection = new AMQPStreamConnection(
-                $this->host,
-                $this->port,
-                $this->user,
-                $this->password,
-                '/' // vhost
-            );
+            $token = $this->getMachineToken();
 
-            $channel = $connection->channel();
+            $response = Http::baseUrl(rtrim((string) config('services.sso.base_url'), '/'))
+                ->withToken($token)
+                ->acceptJson()
+                ->asJson()
+                ->timeout((int) config('services.sso.timeout', 10))
+                ->post('/api/v1/messages/publish', [
+                    'routing_key' => $routingKey,
+                    'message' => $message,
+                ]);
 
-            // Declare Queue (passive=false, durable=true, exclusive=false, auto_delete=false)
-            $channel->queue_declare($this->queue, false, true, false, false);
+            if ($response->failed()) {
+                Log::error('RabbitMQ central publish failed.', [
+                    'routing_key' => $routingKey,
+                    'status_code' => $response->status(),
+                    'response' => $response->body(),
+                ]);
 
-            // Create Message
-            $msg = new AMQPMessage($jsonPayload, [
-                'content_type' => 'application/json',
-                'delivery_mode' => AMQPMessage::DELIVERY_MODE_PERSISTENT
+                return false;
+            }
+
+            Log::info('RabbitMQ central event published.', [
+                'routing_key' => $routingKey,
+                'response' => $response->json(),
             ]);
 
-            // Publish Message (using default exchange with routing key as queue name)
-            $channel->basic_publish($msg, '', $this->queue);
-
-            // Clean up
-            $channel->close();
-            $connection->close();
-
-            Log::info("RabbitMQ: Event successfully published to {$this->queue}");
-        } catch (\Exception $e) {
-            Log::error("RabbitMQ: Failed to publish event", [
-                'message' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+            return true;
+        } catch (\Throwable $exception) {
+            Log::error('RabbitMQ central publish exception.', [
+                'routing_key' => $routingKey,
+                'message' => $exception->getMessage(),
             ]);
-            // Graceful fallback: we do not throw exceptions to avoid interrupting the main business flow
+
+            return false;
         }
+    }
+
+    private function getMachineToken(): string
+    {
+        try {
+            $response = Http::baseUrl(rtrim((string) config('services.sso.base_url'), '/'))
+                ->acceptJson()
+                ->asJson()
+                ->withHeaders([
+                    'X-API-Key' => (string) config('services.sso.api_key'),
+                ])
+                ->timeout((int) config('services.sso.timeout', 10))
+                ->post('/api/v1/auth/token', [
+                    'api_key' => config('services.sso.api_key'),
+                ]);
+        } catch (ConnectionException $exception) {
+            throw new \RuntimeException('Layanan token M2M IAE tidak dapat dihubungi.', 0, $exception);
+        }
+
+        $response->throw();
+
+        $token = $response->json('token')
+            ?? $response->json('access_token')
+            ?? $response->json('data.token')
+            ?? $response->json('data.access_token');
+
+        if (! is_string($token) || $token === '') {
+            throw new \RuntimeException('Response token M2M tidak memuat token.');
+        }
+
+        return $token;
+    }
+
+    private function eventName(string $routingKey): string
+    {
+        return collect(explode('.', $routingKey))
+            ->map(fn (string $part): string => ucfirst($part))
+            ->implode('');
     }
 }

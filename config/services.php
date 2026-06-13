@@ -35,4 +35,18 @@ return [
         ],
     ],
 
+    'sso' => [
+        'base_url' => env('SSO_BASE_URL', 'https://iae-sso.virtualfri.id'),
+        'api_key' => env('SSO_API_KEY'),
+        'team_id' => env('SSO_TEAM_ID', 'TEAM-166'),
+        'timeout' => (int) env('SSO_TIMEOUT', 10),
+    ],
+
+    'soap' => [
+        'audit_url' => env(
+            'SOAP_AUDIT_URL',
+            rtrim(env('SSO_BASE_URL', 'https://iae-sso.virtualfri.id'), '/').'/soap/v1/audit'
+        ),
+    ],
+
 ];

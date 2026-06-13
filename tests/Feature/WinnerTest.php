@@ -145,10 +145,20 @@ class WinnerTest extends TestCase
     {
         // Mock SOAP API call to avoid external dependency and make test fast
         Http::fake([
-            'http://cloud-dosen.test/soap/audit' => Http::response(
+            'https://iae-sso.virtualfri.id/soap/v1/audit' => Http::response(
                 '<soapenv:Envelope><soapenv:Body><AuditResponse><ReceiptNumber>REC-TEST-SOAP-12345</ReceiptNumber></AuditResponse></soapenv:Body></soapenv:Envelope>',
                 200
-            )
+            ),
+            'https://iae-sso.virtualfri.id/api/v1/auth/token' => Http::response([
+                'status' => 'success',
+                'token_type' => 'm2m',
+                'token' => 'machine.jwt.token',
+            ]),
+            'https://iae-sso.virtualfri.id/api/v1/messages/publish' => Http::response([
+                'status' => 'success',
+                'exchange' => 'iae.central.exchange',
+                'routing_key' => 'winner.checkout',
+            ]),
         ]);
 
         // Setup data
@@ -189,5 +199,18 @@ class WinnerTest extends TestCase
             'amount' => 5000000.00,
             'receipt_number' => 'REC-TEST-SOAP-12345'
         ]);
+
+        Http::assertSent(function (\Illuminate\Http\Client\Request $request): bool {
+            return $request->url() === 'https://iae-sso.virtualfri.id/api/v1/messages/publish'
+                && $request->hasHeader('Authorization', 'Bearer machine.jwt.token')
+                && $request['routing_key'] === 'winner.checkout'
+                && $request['message']['event_name'] === 'WinnerCheckout';
+        });
+
+        Http::assertSent(function (\Illuminate\Http\Client\Request $request) use ($jwt): bool {
+            return $request->url() === 'https://iae-sso.virtualfri.id/soap/v1/audit'
+                && $request->hasHeader('Authorization', "Bearer {$jwt}")
+                && str_contains($request->body(), '<iae:ActivityName>WinnerCheckout</iae:ActivityName>');
+        });
     }
 }

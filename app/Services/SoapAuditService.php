@@ -11,7 +11,74 @@ class SoapAuditService
 
     public function __construct()
     {
-        $this->url = config('services.soap.audit_url', env('SOAP_AUDIT_URL', 'http://cloud-dosen.test/soap/audit'));
+        $this->url = (string) config('services.soap.audit_url');
+    }
+
+    /**
+     * Send the required UserLogin audit after a successful SSO login.
+     */
+    public function auditLogin(string $token, string $email): array
+    {
+        $xmlPayload = $this->buildLoginAuditEnvelope($email);
+
+        try {
+            $response = Http::withToken($token)
+                ->accept('text/xml')
+                ->withHeaders([
+                    'Content-Type' => 'text/xml; charset=UTF-8',
+                ])
+                ->timeout((int) config('services.sso.timeout', 10))
+                ->withBody($xmlPayload, 'text/xml; charset=UTF-8')
+                ->post($this->url);
+
+            if ($response->failed()) {
+                Log::warning('SOAP login audit request failed.', [
+                    'status_code' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+
+                return [
+                    'success' => false,
+                    'status' => 'Gagal (HTTP '.$response->status().')',
+                    'receipt_number' => null,
+                    'message' => 'Audit Log gagal dikirim.',
+                    'response_xml' => $response->body(),
+                ];
+            }
+
+            $receiptNumber = $this->parseReceiptNumber($response->body());
+            $status = $this->parseXmlElement($response->body(), 'Status') ?? 'Berhasil';
+
+            if ($receiptNumber === null) {
+                return [
+                    'success' => false,
+                    'status' => 'Gagal (receipt tidak ditemukan)',
+                    'receipt_number' => null,
+                    'message' => 'SOAP merespons, tetapi Receipt Number tidak ditemukan.',
+                    'response_xml' => $response->body(),
+                ];
+            }
+
+            return [
+                'success' => true,
+                'status' => $status,
+                'receipt_number' => $receiptNumber,
+                'message' => 'Audit Log berhasil dikirim.',
+                'response_xml' => $response->body(),
+            ];
+        } catch (\Throwable $exception) {
+            Log::warning('SOAP login audit connection failed.', [
+                'message' => $exception->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'status' => 'Gagal',
+                'receipt_number' => null,
+                'message' => 'Audit Log gagal dikirim.',
+                'response_xml' => null,
+            ];
+        }
     }
 
     /**
@@ -23,7 +90,13 @@ class SoapAuditService
      * @param float $amount
      * @return string
      */
-    public function auditTransaction(int $winnerId, string $userEmail, string $itemName, float $amount): string
+    public function auditTransaction(
+        int $winnerId,
+        string $userEmail,
+        string $itemName,
+        float $amount,
+        ?string $token = null,
+    ): string
     {
         // 1. Build the SOAP XML request envelope
         $xmlPayload = $this->buildSoapEnvelope($winnerId, $userEmail, $itemName, $amount);
@@ -35,12 +108,17 @@ class SoapAuditService
 
         try {
             // 2. Post XML to SOAP Endpoint with timeout
-            $response = Http::withHeaders([
-                'Content-Type' => 'text/xml; charset=utf-8',
-                'SOAPAction' => 'http://audit.enterprise.digital.city/AuditTransaction',
-            ])
+            $request = Http::withHeaders([
+                'Content-Type' => 'text/xml; charset=UTF-8',
+            ]);
+
+            if ($token) {
+                $request = $request->withToken($token);
+            }
+
+            $response = $request
             ->timeout(5) // 5 seconds timeout
-            ->withBody($xmlPayload, 'text/xml')
+            ->withBody($xmlPayload, 'text/xml; charset=UTF-8')
             ->post($this->url);
 
             if ($response->successful()) {
@@ -72,22 +150,60 @@ class SoapAuditService
      */
     protected function buildSoapEnvelope(int $winnerId, string $userEmail, string $itemName, float $amount): string
     {
-        $itemNameClean = htmlspecialchars($itemName, ENT_QUOTES | ENT_XML1, 'UTF-8');
-        $userEmailClean = htmlspecialchars($userEmail, ENT_QUOTES | ENT_XML1, 'UTF-8');
+        $logContent = json_encode([
+            'winner_id' => $winnerId,
+            'email' => $userEmail,
+            'item_name' => $itemName,
+            'amount' => $amount,
+            'activity' => 'Winner Checkout',
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+
+        $logContent = str_replace(']]>', ']]]]><![CDATA[>', $logContent);
+        $teamId = htmlspecialchars(
+            (string) config('services.sso.team_id', 'TEAM-166'),
+            ENT_QUOTES | ENT_XML1,
+            'UTF-8'
+        );
 
         return <<<XML
-<?xml version="1.0" encoding="utf-8"?>
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:aud="http://audit.enterprise.digital.city">
-   <soapenv:Header/>
-   <soapenv:Body>
-      <aud:AuditRequest>
-         <aud:WinnerId>{$winnerId}</aud:WinnerId>
-         <aud:UserEmail>{$userEmailClean}</aud:UserEmail>
-         <aud:ItemName>{$itemNameClean}</aud:ItemName>
-         <aud:Amount>{$amount}</aud:Amount>
-      </aud:AuditRequest>
-   </soapenv:Body>
-</soapenv:Envelope>
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:iae="http://iae.central/audit">
+    <soap:Body>
+        <iae:AuditRequest>
+            <iae:TeamID>{$teamId}</iae:TeamID>
+            <iae:ActivityName>WinnerCheckout</iae:ActivityName>
+            <iae:LogContent><![CDATA[{$logContent}]]></iae:LogContent>
+        </iae:AuditRequest>
+    </soap:Body>
+</soap:Envelope>
+XML;
+    }
+
+    protected function buildLoginAuditEnvelope(string $email): string
+    {
+        $logContent = json_encode([
+            'email' => $email,
+            'activity' => 'Login Success',
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+
+        $logContent = str_replace(']]>', ']]]]><![CDATA[>', $logContent);
+        $teamId = htmlspecialchars(
+            (string) config('services.sso.team_id', 'TEAM-166'),
+            ENT_QUOTES | ENT_XML1,
+            'UTF-8'
+        );
+
+        return <<<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:iae="http://iae.central/audit">
+    <soap:Body>
+        <iae:AuditRequest>
+            <iae:TeamID>{$teamId}</iae:TeamID>
+            <iae:ActivityName>UserLogin</iae:ActivityName>
+            <iae:LogContent><![CDATA[{$logContent}]]></iae:LogContent>
+        </iae:AuditRequest>
+    </soap:Body>
+</soap:Envelope>
 XML;
     }
 
@@ -96,37 +212,19 @@ XML;
      */
     protected function parseReceiptNumber(string $xmlContent): ?string
     {
-        try {
-            // Disable external entities loading for security
-            $previousEntityState = libxml_disable_entity_loader(true);
-            
-            // Clean up namespaces to make parsing easier
-            $xmlClean = preg_replace('/(<\/?[a-zA-Z0-9_-]+):([^>]+>)/', '$1$2', $xmlContent);
-            $xml = simplexml_load_string($xmlClean);
-            
-            libxml_disable_entity_loader($previousEntityState);
+        return $this->parseXmlElement($xmlContent, 'ReceiptNumber');
+    }
 
-            if ($xml === false) {
-                // Try simple string extraction if XML parsing fails due to bad formatting
-                if (preg_replace('/.*<ReceiptNumber>(.*?)<\/ReceiptNumber>.*/is', '$1', $xmlContent, 1, $count) && $count > 0) {
-                    $extracted = preg_replace('/.*<ReceiptNumber>(.*?)<\/ReceiptNumber>.*/is', '$1', $xmlContent);
-                    return trim($extracted);
-                }
-                return null;
-            }
+    protected function parseXmlElement(string $xmlContent, string $element): ?string
+    {
+        $quotedElement = preg_quote($element, '/');
 
-            // Search for ReceiptNumber anywhere in the XML
-            $results = $xml->xpath('//ReceiptNumber');
-            if (!empty($results)) {
-                return (string) $results[0];
-            }
-        } catch (\Exception $e) {
-            Log::error("SOAP Audit: XML Parsing Exception", ['message' => $e->getMessage()]);
-        }
-
-        // Regex fallback
-        if (preg_match('/<ReceiptNumber>(.*?)<\/ReceiptNumber>/i', $xmlContent, $matches)) {
-            return trim($matches[1]);
+        if (preg_match(
+            '/<(?:[A-Za-z0-9_-]+:)?'.$quotedElement.'\b[^>]*>(.*?)<\/(?:[A-Za-z0-9_-]+:)?'.$quotedElement.'>/is',
+            $xmlContent,
+            $matches
+        )) {
+            return trim(html_entity_decode(strip_tags($matches[1]), ENT_QUOTES | ENT_XML1, 'UTF-8'));
         }
 
         return null;
