@@ -22,7 +22,9 @@ class SoapAuditService
         $xmlPayload = $this->buildLoginAuditEnvelope($email);
 
         try {
-            $response = Http::withToken($token)
+            $m2mToken = $this->getMachineToken();
+
+            $response = Http::withToken($m2mToken)
                 ->accept('text/xml')
                 ->withHeaders([
                     'Content-Type' => 'text/xml; charset=UTF-8',
@@ -108,15 +110,12 @@ class SoapAuditService
 
         try {
             // 2. Post XML to SOAP Endpoint with timeout
-            $request = Http::withHeaders([
+            $m2mToken = $this->getMachineToken();
+
+            $response = Http::withHeaders([
                 'Content-Type' => 'text/xml; charset=UTF-8',
-            ]);
-
-            if ($token) {
-                $request = $request->withToken($token);
-            }
-
-            $response = $request
+            ])
+            ->withToken($m2mToken)
             ->timeout(5) // 5 seconds timeout
             ->withBody($xmlPayload, 'text/xml; charset=UTF-8')
             ->post($this->url);
@@ -228,5 +227,37 @@ XML;
         }
 
         return null;
+    }
+
+    private function getMachineToken(): string
+    {
+        try {
+            $response = Http::baseUrl(rtrim((string) config('services.sso.base_url'), '/'))
+                ->acceptJson()
+                ->asJson()
+                ->withHeaders([
+                    'X-API-Key' => (string) config('services.sso.api_key'),
+                ])
+                ->timeout((int) config('services.sso.timeout', 10))
+                ->post('/api/v1/auth/token', [
+                    'api_key' => config('services.sso.api_key'),
+                    'nim' => config('services.sso.nim'),
+                ]);
+        } catch (\Throwable $exception) {
+            throw new \RuntimeException('Layanan token M2M IAE tidak dapat dihubungi.', 0, $exception);
+        }
+
+        $response->throw();
+
+        $token = $response->json('token')
+            ?? $response->json('access_token')
+            ?? $response->json('data.token')
+            ?? $response->json('data.access_token');
+
+        if (! is_string($token) || $token === '') {
+            throw new \RuntimeException('Response token M2M tidak memuat token.');
+        }
+
+        return $token;
     }
 }

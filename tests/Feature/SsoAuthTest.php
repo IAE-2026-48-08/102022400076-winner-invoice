@@ -15,7 +15,7 @@ class SsoAuthTest extends TestCase
         config([
             'services.sso.base_url' => 'https://iae-sso.virtualfri.id',
             'services.sso.api_key' => 'KEY-MHS-166',
-            'services.sso.team_id' => 'TEAM-166',
+            'services.sso.team_id' => 'TEAM-02',
             'services.soap.audit_url' => 'https://iae-sso.virtualfri.id/soap/v1/audit',
         ]);
     }
@@ -56,7 +56,7 @@ class SsoAuthTest extends TestCase
             'https://iae-sso.virtualfri.id/api/v1/messages/publish' => Http::response([
                 'status' => 'success',
                 'exchange' => 'iae.central.exchange',
-                'routing_key' => 'user.login',
+                'routing_key' => 'winner.invoice.created',
             ]),
         ]);
 
@@ -79,13 +79,13 @@ class SsoAuthTest extends TestCase
         Http::assertSent(function (Request $request): bool {
             return $request->url() === 'https://iae-sso.virtualfri.id/soap/v1/audit'
                 && $request->hasHeader('Authorization', 'Bearer header.payload.signature')
-                && str_contains($request->body(), '<iae:TeamID>TEAM-166</iae:TeamID>')
+                && str_contains($request->body(), '<iae:TeamID>TEAM-02</iae:TeamID>')
                 && str_contains($request->body(), '<iae:ActivityName>UserLogin</iae:ActivityName>');
         });
 
         Http::assertSent(function (Request $request): bool {
             return $request->url() === 'https://iae-sso.virtualfri.id/api/v1/messages/publish'
-                && $request['routing_key'] === 'user.login'
+                && $request['routing_key'] === 'winner.invoice.created'
                 && $request['message']['data']['audit_receipt_number'] === 'REC-LOGIN-166';
         });
 

@@ -89,6 +89,16 @@ class VerifyJwtToken
 
         [$headerB64, $payloadB64, $signatureB64] = $parts;
 
+        // Decode Header
+        $headerJson = $this->base64UrlDecode($headerB64);
+        if (!$headerJson) {
+            return null;
+        }
+        $header = json_decode($headerJson, true);
+        if (!$header || !is_array($header)) {
+            return null;
+        }
+
         // 1. Decode Payload
         $payloadJson = $this->base64UrlDecode($payloadB64);
         if (!$payloadJson) {
@@ -106,19 +116,119 @@ class VerifyJwtToken
             return null;
         }
 
-        // 3. Verify Signature (HMAC SHA256 using key from env)
-        $key = env('SSO_JWT_KEY', 'dosen_secret_key');
-        $expectedSignature = hash_hmac('sha256', "$headerB64.$payloadB64", $key, true);
-        $expectedSignatureB64 = $this->base64UrlEncode($expectedSignature);
+        // 3. Verify Signature
+        $alg = $header['alg'] ?? 'HS256';
 
-        // For flexibility in development/testing, if key is set to a specific dev bypass or if signature matches
-        if ($signatureB64 !== $expectedSignatureB64) {
-            // For testing/mocking purposes, we can log a warning but still accept the signature if it's set to ignore/stub
-            if (env('SSO_BYPASS_SIGNATURE', false)) {
-                Log::warning("SSO: Signature mismatch but BYPASS is enabled");
-                return $payload;
+        if ($alg === 'RS256') {
+            $kid = $header['kid'] ?? null;
+            if (!$kid) {
+                Log::warning("SSO: JWT header does not contain kid claim");
+                return null;
             }
-            Log::warning("SSO: JWT Signature verification failed");
+
+            // Fetch keys from JWKS with cache
+            $jwks = \Illuminate\Support\Facades\Cache::remember('iae_sso_jwks', 86400, function () {
+                try {
+                    $url = rtrim((string) config('services.sso.base_url'), '/') . '/api/v1/auth/jwks';
+                    $response = \Illuminate\Support\Facades\Http::timeout(5)->get($url);
+                    if ($response->successful()) {
+                        return $response->json();
+                    }
+                } catch (\Throwable $e) {
+                    Log::error('SSO: Failed to fetch JWKS from central server: ' . $e->getMessage());
+                }
+                return null;
+            });
+
+            if (!$jwks || !isset($jwks['keys']) || !is_array($jwks['keys'])) {
+                Log::error('SSO: JWKS is unavailable or invalid');
+                return null;
+            }
+
+            // Find matching kid
+            $jwk = null;
+            foreach ($jwks['keys'] as $key) {
+                if (isset($key['kid']) && $key['kid'] === $kid) {
+                    $jwk = $key;
+                    break;
+                }
+            }
+
+            if (!$jwk) {
+                Log::warning("SSO: No matching key found in JWKS for kid: {$kid}");
+                return null;
+            }
+
+            if (!isset($jwk['n']) || !isset($jwk['e'])) {
+                Log::warning("SSO: JWK does not contain RSA parameters n and e");
+                return null;
+            }
+
+            // Convert JWK to PEM public key
+            try {
+                $nBinary = $this->base64UrlDecode($jwk['n']);
+                $eBinary = $this->base64UrlDecode($jwk['e']);
+
+                if (!$nBinary || !$eBinary) {
+                    Log::error('SSO: Failed to decode base64url modulus or exponent');
+                    return null;
+                }
+
+                $publicKeyResource = openssl_pkey_new([
+                    'rsa' => [
+                        'n' => $nBinary,
+                        'e' => $eBinary,
+                    ]
+                ]);
+
+                if (!$publicKeyResource) {
+                    Log::error('SSO: Failed to create public key resource from JWK');
+                    return null;
+                }
+
+                $publicKeyDetails = openssl_pkey_get_details($publicKeyResource);
+                if (!$publicKeyDetails || !isset($publicKeyDetails['key'])) {
+                    Log::error('SSO: Failed to retrieve details from public key resource');
+                    return null;
+                }
+                $publicKeyPem = $publicKeyDetails['key'];
+            } catch (\Throwable $e) {
+                Log::error('SSO: Error converting JWK to PEM: ' . $e->getMessage());
+                return null;
+            }
+
+            // Verify signature using OpenSSL
+            $signature = $this->base64UrlDecode($signatureB64);
+            $dataToVerify = "$headerB64.$payloadB64";
+
+            if (!$signature) {
+                return null;
+            }
+
+            $verifyResult = openssl_verify($dataToVerify, $signature, $publicKeyPem, OPENSSL_ALGO_SHA256);
+            if ($verifyResult !== 1) {
+                if (env('SSO_BYPASS_SIGNATURE', false)) {
+                    Log::warning("SSO: RS256 signature verification failed but BYPASS is enabled");
+                    return $payload;
+                }
+                Log::warning("SSO: JWT RS256 signature verification failed");
+                return null;
+            }
+        } elseif ($alg === 'HS256') {
+            $key = env('SSO_JWT_KEY', 'dosen_secret_key');
+            $expectedSignature = hash_hmac('sha256', "$headerB64.$payloadB64", $key, true);
+            $expectedSignatureB64 = $this->base64UrlEncode($expectedSignature);
+
+            if ($signatureB64 !== $expectedSignatureB64) {
+                if (env('SSO_BYPASS_SIGNATURE', false)) {
+                    Log::warning("SSO: HS256 signature mismatch but BYPASS is enabled");
+                    return $payload;
+                }
+                Log::warning("SSO: JWT HS256 Signature verification failed");
+                return null;
+            }
+        } else {
+            Log::warning("SSO: Unsupported JWT algorithm: {$alg}");
             return null;
         }
 

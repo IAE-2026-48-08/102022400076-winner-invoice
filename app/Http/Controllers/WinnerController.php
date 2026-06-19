@@ -256,7 +256,7 @@ class WinnerController extends Controller
             $winner->load(['user', 'auctionItem', 'invoice']);
 
             // 5. Broadcast asynchronously to RabbitMQ
-            $this->rabbitMQPublisher->publishEvent('winner.checkout', [
+            $this->rabbitMQPublisher->publishEvent('winner.invoice.created', [
                 'winner_id' => $winner->id,
                 'user' => [
                     'id' => $user->id,

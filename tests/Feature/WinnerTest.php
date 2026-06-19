@@ -157,7 +157,7 @@ class WinnerTest extends TestCase
             'https://iae-sso.virtualfri.id/api/v1/messages/publish' => Http::response([
                 'status' => 'success',
                 'exchange' => 'iae.central.exchange',
-                'routing_key' => 'winner.checkout',
+                'routing_key' => 'winner.invoice.created',
             ]),
         ]);
 
@@ -203,13 +203,13 @@ class WinnerTest extends TestCase
         Http::assertSent(function (\Illuminate\Http\Client\Request $request): bool {
             return $request->url() === 'https://iae-sso.virtualfri.id/api/v1/messages/publish'
                 && $request->hasHeader('Authorization', 'Bearer machine.jwt.token')
-                && $request['routing_key'] === 'winner.checkout'
-                && $request['message']['event_name'] === 'WinnerCheckout';
+                && $request['routing_key'] === 'winner.invoice.created'
+                && $request['message']['event_name'] === 'WinnerInvoiceCreated';
         });
 
-        Http::assertSent(function (\Illuminate\Http\Client\Request $request) use ($jwt): bool {
+        Http::assertSent(function (\Illuminate\Http\Client\Request $request): bool {
             return $request->url() === 'https://iae-sso.virtualfri.id/soap/v1/audit'
-                && $request->hasHeader('Authorization', "Bearer {$jwt}")
+                && $request->hasHeader('Authorization', 'Bearer machine.jwt.token')
                 && str_contains($request->body(), '<iae:ActivityName>WinnerCheckout</iae:ActivityName>');
         });
     }

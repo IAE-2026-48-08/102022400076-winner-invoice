@@ -22,7 +22,6 @@ class SsoService
                 ->post('/api/v1/auth/token', [
                     'email' => $email,
                     'password' => $password,
-                    'api_key' => config('services.sso.api_key'),
                 ]);
         } catch (ConnectionException $exception) {
             throw new RuntimeException('Layanan SSO tidak dapat dihubungi.', 0, $exception);
@@ -46,7 +45,9 @@ class SsoService
             throw new RuntimeException('Response SSO tidak memuat access token.');
         }
 
-        $user = data_get($payload, 'user')
+        $user = data_get($payload, 'profile')
+            ?? data_get($payload, 'data.profile')
+            ?? data_get($payload, 'user')
             ?? data_get($payload, 'data.user')
             ?? [];
 

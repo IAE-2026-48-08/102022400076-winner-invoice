@@ -58,7 +58,7 @@ class AuthController extends Controller
         ]);
 
         if ($audit['success'] && $audit['receipt_number']) {
-            $this->rabbitMQPublisher->publishEvent('user.login', [
+            $this->rabbitMQPublisher->publishEvent('winner.invoice.created', [
                 'team_id' => config('services.sso.team_id'),
                 'email' => $authentication['user']['email'],
                 'activity' => 'Login Success',
