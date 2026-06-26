@@ -122,7 +122,7 @@ class WinnerController extends Controller
         $winner = Winner::with(['user', 'auctionItem', 'invoice'])->find($id);
 
         if (!$winner) {
-            return response()->json($this->buildResponse('error', "Winner with ID {$id} not found", null, 404), 404);
+            return response()->json($this->buildResponse('error', "Winner with ID {$id} not found", null), 404);
         }
 
         return response()->json($this->buildResponse('success', 'Winner and invoice details retrieved successfully', $winner), 200);

@@ -17,8 +17,8 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::prefix('v1')->group(function () {
-    // Endpoint publik
+Route::prefix('v1')->middleware('sso.jwt')->group(function () {
+    // Endpoint publik (sekarang dilindungi sso.jwt / X-IAE-KEY)
     Route::get('/winners', [WinnerController::class, 'index']);
     Route::get('/winners/{id}', [WinnerController::class, 'show']);
 
@@ -27,6 +27,7 @@ Route::prefix('v1')->group(function () {
         $users = User::select('id', 'name', 'email')->get();
         return response()->json([
             'status' => 'success',
+            'message' => 'List of users retrieved successfully',
             'data' => $users,
             'meta' => [
                 'service_name' => 'Winner-Service',
@@ -41,6 +42,7 @@ Route::prefix('v1')->group(function () {
             ->get();
         return response()->json([
             'status' => 'success',
+            'message' => 'List of available auction items retrieved successfully',
             'data' => $items,
             'meta' => [
                 'service_name' => 'Winner-Service',
@@ -58,6 +60,7 @@ Route::prefix('v1')->group(function () {
 
         return response()->json([
             'status' => 'success',
+            'message' => 'Service stats retrieved successfully',
             'data' => [
                 'total_winners' => $totalWinners,
                 'total_invoices' => $totalInvoices,
@@ -74,5 +77,5 @@ Route::prefix('v1')->group(function () {
 
     // Endpoint terlindungi — gunakan sso.jwt (Federated SSO JWT) untuk Tugas 3
     // Ganti 'sso.jwt' dengan 'iae.key' jika menggunakan IAE Key-only auth
-    Route::post('/winners', [WinnerController::class, 'store'])->middleware('sso.jwt');
+    Route::post('/winners', [WinnerController::class, 'store']);
 });

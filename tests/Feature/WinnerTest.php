@@ -61,7 +61,9 @@ class WinnerTest extends TestCase
             'status' => 'pending'
         ]);
 
-        $response = $this->getJson('/api/v1/winners');
+        $response = $this->withHeaders([
+            'X-IAE-KEY' => '102022400076'
+        ])->getJson('/api/v1/winners');
 
         $response->assertStatus(200)
             ->assertJsonStructure([
@@ -105,7 +107,9 @@ class WinnerTest extends TestCase
             'status' => 'pending'
         ]);
 
-        $response = $this->getJson("/api/v1/winners/{$winner->id}");
+        $response = $this->withHeaders([
+            'X-IAE-KEY' => '102022400076'
+        ])->getJson("/api/v1/winners/{$winner->id}");
 
         $response->assertStatus(200)
             ->assertJsonPath('data.id', $winner->id)
@@ -117,8 +121,20 @@ class WinnerTest extends TestCase
      */
     public function test_get_winner_not_found(): void
     {
-        $response = $this->getJson('/api/v1/winners/999');
+        $response = $this->withHeaders([
+            'X-IAE-KEY' => '102022400076'
+        ])->getJson('/api/v1/winners/999');
         $response->assertStatus(404)
+            ->assertJsonPath('status', 'error');
+    }
+
+    /**
+     * Test GET /api/v1/winners without API Key returns 401.
+     */
+    public function test_get_winners_requires_iae_key(): void
+    {
+        $response = $this->getJson('/api/v1/winners');
+        $response->assertStatus(401)
             ->assertJsonPath('status', 'error');
     }
 

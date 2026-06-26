@@ -15,8 +15,9 @@ class VerifyIaeKey
     {
         $key = $request->header('X-IAE-KEY');
         $expectedKey = env('IAE_KEY', 'default_iae_key');
+        $nim = env('SSO_NIM', '102022400076');
 
-        if (!$key || $key !== $expectedKey) {
+        if (!$key || ($key !== $expectedKey && $key !== $nim)) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Unauthorized: Invalid or missing X-IAE-KEY header',

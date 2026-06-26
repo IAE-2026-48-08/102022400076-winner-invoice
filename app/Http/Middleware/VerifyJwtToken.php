@@ -17,7 +17,30 @@ class VerifyJwtToken
     public function handle(Request $request, Closure $next): Response
     {
         $authHeader = $request->header('Authorization');
+        $iaeKey = $request->header('X-IAE-KEY');
 
+        // 1. Check for X-IAE-KEY first (NIM or Secret Key)
+        if ($iaeKey) {
+            $expectedKey = env('IAE_KEY', 'default_iae_key');
+            $nim = env('SSO_NIM', '102022400076');
+            if ($iaeKey === $expectedKey || $iaeKey === $nim) {
+                // Resolve user if possible (e.g. from request payload user_id, or first user)
+                $userId = $request->input('user_id');
+                $user = $userId ? User::find($userId) : User::first();
+                if ($user) {
+                    $request->setUserResolver(fn () => $user);
+                }
+                return $next($request);
+            } else {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Unauthorized: Invalid X-IAE-KEY header',
+                    'errors' => null
+                ], 401);
+            }
+        }
+
+        // 2. Fallback to JWT Token Check
         if (!$authHeader || !str_starts_with($authHeader, 'Bearer ')) {
             return response()->json([
                 'status' => 'error',
